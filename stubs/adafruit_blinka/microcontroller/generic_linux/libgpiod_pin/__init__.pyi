@@ -1,0 +1,3 @@
+class Pin:
+    def __init__(self, pin_id: int) -> None:
+        ...
