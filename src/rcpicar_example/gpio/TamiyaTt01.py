@@ -1,9 +1,9 @@
-from rcpicar.gpio.IGpioServerService import IGpioServerService
+from rcpicar.gpio.interfaces import IGpioService
 from rcpicar.util.Atomic import Atomic
 
 
-class TamiyaTt01(IGpioServerService):
-    def __init__(self, gpio_service: IGpioServerService) -> None:
+class TamiyaTt01(IGpioService):
+    def __init__(self, gpio_service: IGpioService) -> None:
         self.gpio_service = gpio_service
         self.last_steering_value = Atomic(0)
 

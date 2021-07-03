@@ -10,15 +10,14 @@ except BaseException as exception:
     adafruit_exception = exception
 from logging import getLogger
 from typing import Optional
-from rcpicar.argument import IArguments
 from rcpicar.clock import IClock
-from rcpicar.routed.RoutedSendService import RoutedSendService
-from rcpicar.service import AbstractService, AbstractServiceManager
+from rcpicar.send import ISendService
+from rcpicar.service import IService, IServiceManager
 from rcpicar.timeout.TimeoutSendService import TimeoutSendService
+from rcpicar.util.argument import IArguments
 from rcpicar.util.Lazy import Lazy
 from rcpicar.util.Placeholder import Placeholder
 from .VoltageMessage import VoltageMessage
-from ..message import custom_message_types
 
 
 def get_voltage_divider_gain(resistor1: float, resistor2: float) -> float:
@@ -32,26 +31,26 @@ class VoltageServerArguments(IArguments):
         self.voltage_divider_resistor2 = Lazy(lambda store: 471.0)
 
 
-class VoltageServerService(AbstractService):
+class VoltageServerService(IService):
     def __init__(
             self,
             arguments: VoltageServerArguments,
             clock: IClock,
-            routed_send_service: RoutedSendService,
-            service_manager: AbstractServiceManager
+            send_service: ISendService,
+            service_manager: IServiceManager
     ) -> None:
-        super().__init__(service_manager)
         TimeoutSendService(
             clock,
-            arguments.sender_interval_seconds.get(),
-            routed_send_service.create_send_service(custom_message_types.voltage),
+            send_service,
             service_manager,
+            arguments.sender_interval_seconds.get(),
             self.get_voltage_message,
         )
         self.analog_in: Placeholder[AnalogIn] = Placeholder()
         self.gain = get_voltage_divider_gain(
             arguments.voltage_divider_resistor1.get(), arguments.voltage_divider_resistor2.get())
         self.logger = getLogger(__name__)
+        service_manager.add_service(self)
 
     def get_service_name(self) -> str:
         return __name__

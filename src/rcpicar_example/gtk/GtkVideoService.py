@@ -7,25 +7,25 @@ if True:  # Suppresses style warnings.
 from gi.repository import GstVideo, Gst  # type: ignore
 from logging import getLogger
 from typing import Any
-from rcpicar.service import AbstractService, AbstractServiceManager
+from rcpicar.service import IService, IServiceManager
 
 Gst.init(None)
 str(GstVideo)  # Marking GstVideo as used. Importing GstVideo is required for msg.src.set_window_handle!
 
 
-class GtkVideoService(AbstractService):
+class GtkVideoService(IService):
     def __init__(
             self,
             caps: str,
             flv_file_path: Optional[str],
             port: int,
-            service_manager: AbstractServiceManager,
+            service_manager: IServiceManager,
             xid: int,
     ) -> None:
-        super().__init__(service_manager)
         self.logger = getLogger(__name__)
         self.pipeline = Gst.Pipeline()
         self.xid = xid
+        service_manager.add_service(self)
 
         bus = self.pipeline.get_bus()
         bus.add_signal_watch()

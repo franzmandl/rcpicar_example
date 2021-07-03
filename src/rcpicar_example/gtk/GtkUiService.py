@@ -6,14 +6,15 @@ from gi.repository import Gtk  # type: ignore
 from logging import getLogger
 from threading import Thread
 from typing import Any, Optional, Tuple
-from rcpicar.car.CarClientService import CarClientService
-from rcpicar.clock import IClock
-from rcpicar.gstreamer.GStreamerClientService import GStreamerClientService
-from rcpicar.gstreamer.GStreamerVideoListener import GStreamerVideoListener
+from rcpicar.gpio.interfaces import IGpioService
+from rcpicar.gstreamer.interfaces import IGStreamerClientService, IGStreamerVideoListener
+from rcpicar.gstreamer.VideoSettings import VideoSettings
 from rcpicar.reliable import IReliableConnectListener, IReliableService
-from rcpicar.service import AbstractServiceManager
+from rcpicar.service import IServiceManager
+from rcpicar.util.argument import AnyArguments, create_value_argument, IArguments
 from rcpicar.util.Atomic import Atomic
 from rcpicar.util.ConnectionDetails import ConnectionDetails
+from rcpicar.util.Lazy import Lazy
 from rcpicar.util.Placeholder import Placeholder
 from rcpicar.util.SingleServiceManager import SingleServiceManager
 from .GtkVideoService import GtkVideoService
@@ -22,22 +23,35 @@ from .KeyState import KeyState
 from .SemanticKeycode import SemanticKeycode
 
 
-class GtkUi(GStreamerVideoListener, IReliableConnectListener):
+class GtkUiArguments(IArguments):
+    def __init__(self, video_settings: Lazy[VideoSettings]) -> None:
+        self.flv_file_path = Lazy(lambda store: None)
+        self.video_settings = Lazy(lambda store: video_settings(store))
+
+    def get_arguments(self) -> AnyArguments:
+        return [
+            create_value_argument(
+                self.flv_file_path, '--flv-file-path', str, 'Store video stream additionally to this file.'),
+        ]
+
+
+class GtkUiService(IGStreamerVideoListener, IReliableConnectListener):
     def __init__(
             self,
-            car_service: CarClientService,
-            clock: IClock,
-            gstreamer_service: GStreamerClientService,
+            arguments: GtkUiArguments,
+            gpio_service: IGpioService,
+            gstreamer_service: IGStreamerClientService,
             reliable_service: IReliableService,
-            service_manager: AbstractServiceManager,
+            service_manager: IServiceManager,
     ) -> None:
-        self.car_service = car_service
+        self.arguments = arguments
+        self.gpio_service = gpio_service
         self.gstreamer_service = gstreamer_service.add_gstreamer_video_listener(self)
         self.is_video_loading = Atomic(False)
         self.key_state = Atomic(KeyState())
         self.logger = getLogger(__name__)
         self.service_manager = service_manager
-        self.video_service_manager = SingleServiceManager(clock)
+        self.video_service_manager = SingleServiceManager()
         self.xid: Placeholder[int] = Placeholder()
         reliable_service.add_reliable_connect_listener(self)
 
@@ -54,9 +68,7 @@ class GtkUi(GStreamerVideoListener, IReliableConnectListener):
 
         window = Gtk.Window()
         window.connect('destroy', on_destroy)
-        window.set_default_size(
-            self.gstreamer_service.arguments.settings.get().width,
-            self.gstreamer_service.arguments.settings.get().height)
+        window.set_default_size(self.arguments.video_settings.get().width, self.arguments.video_settings.get().height)
         window.set_title('RCPiCar GTK Client')
         window.maximize()
         drawing_area = Gtk.DrawingArea()
@@ -85,7 +97,7 @@ class GtkUi(GStreamerVideoListener, IReliableConnectListener):
             xid = self.xid.get_eventually(self.service_manager).get_blocking()
             if xid is not None:
                 GtkVideoService(
-                    caps, self.gstreamer_service.arguments.flv_file_path.get(), port, self.video_service_manager, xid)
+                    caps, self.arguments.flv_file_path.get(), port, self.video_service_manager, xid)
                 self.video_service_manager.start_all()
 
         Thread(target=run).start()
@@ -100,7 +112,7 @@ class GtkUi(GStreamerVideoListener, IReliableConnectListener):
             if not key_state.is_key_pressed(keycode) and key_state.set_key_pressed(keycode, True):
                 command = self.on_key_changed(key_state)
         if command is not None:
-            self.car_service.update(*command)
+            self.gpio_service.update(*command)
 
     def on_key_release_event(self, widget: Any, event: Any) -> None:
         """
@@ -112,7 +124,7 @@ class GtkUi(GStreamerVideoListener, IReliableConnectListener):
             if key_state.is_key_pressed(keycode) and key_state.set_key_pressed(keycode, False):
                 command = self.on_key_changed(key_state)
         if command is not None:
-            self.car_service.update(*command)
+            self.gpio_service.update(*command)
 
     @staticmethod
     def on_key_changed(key_state: KeyState) -> Tuple[int, int]:
